@@ -1,6 +1,8 @@
-google-genai>=0.1.0
-python-telegram-bot>=22.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
 openai-whisper
+python-telegram-bot>=22.0
+google-genai>=0.1.0
 ffmpeg-python
 moviepy
 opencv-python-headless
