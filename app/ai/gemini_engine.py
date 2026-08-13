@@ -1,53 +1,47 @@
-import google.generativeai as genai
 import json
-import time
+import os
+from google import genai
 from app.config import GEMINI_API_KEY
-from app.utils.logger import logger
-
-genai.configure(api_key=GEMINI_API_KEY)
 
 class GeminiEngine:
     def __init__(self):
-        self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        # New Google GenAI SDK client setup
+        self.client = genai.Client(api_key=GEMINI_API_KEY)
 
-    def analyze_viral_moments(self, transcript_text: str, max_retries: int = 3) -> dict:
+    def analyze_viral_moments(self, transcript_text: str) -> dict:
         prompt = f"""
-        You are an expert short-form video editor. Analyze this video transcript with timestamps.
-        Find the single most engaging/viral segment (duration between 30 to 60 seconds).
+        Analyze this transcript and find the single most viral 30-60 sec moment.
+        
+        Transcript: {transcript_text}
 
-        Transcript:
-        {transcript_text}
-
-        Return STRICTLY valid JSON with no markdown formatting outside JSON:
+        Return strictly valid JSON:
         {{
             "start_time": "00:01:10",
             "end_time": "00:01:40",
-            "viral_score": 92,
+            "viral_score": 90,
             "title": "Viral Moment Title",
             "caption": "Check this out! #shorts #viral",
             "hook_text": "Watch until the end!"
         }}
         """
-
-        for attempt in range(max_retries):
-            try:
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config={"response_mime_type": "application/json"}
-                )
-                return json.loads(response.text)
-            except Exception as e:
-                logger.warning(f"[Gemini Attempt {attempt + 1}] Failed: {e}")
-                time.sleep(2 ** attempt)  # Exponential Backoff
-
-        # Fallback Engine Response
-        logger.error("[Gemini Engine] All retries failed. Returning default fallback segment.")
-        return {
-            "start_time": "00:00:00",
-            "end_time": "00:00:30",
-            "viral_score": 50,
-            "title": "Automated Short Clip",
-            "caption": "#shorts #ai",
-            "hook_text": "Watch this!"
-        }
-      
+        try:
+            # Using gemini-2.5-flash for super fast & reliable responses
+            response = self.client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config={
+                    'response_mime_type': 'application/json',
+                }
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"[Gemini Error]: {e}")
+            return {
+                "start_time": "00:00:00",
+                "end_time": "00:00:30",
+                "viral_score": 50,
+                "title": "Processed Clip",
+                "caption": "#shorts",
+                "hook_text": "Watch this"
+            }
+            
