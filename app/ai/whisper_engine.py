@@ -1,14 +1,11 @@
 import logging
+import os
 import whisper
 
 logger = logging.getLogger(__name__)
 
 class SpeechToText:
     def __init__(self, model_size: str = "tiny"):
-        """
-        Whisper STT Engine Initializer
-        Render Free Tier (512MB RAM) ke liye default 'tiny' model best hai.
-        """
         logger.info(f"Loading Whisper model: {model_size}...")
         try:
             self.model = whisper.load_model(model_size)
@@ -20,7 +17,17 @@ class SpeechToText:
     def transcribe(self, audio_path: str) -> dict:
         """
         Audio file ko text me transcribe karta hai.
+        Auto-corrects .mp3 extension to .wav if needed.
         """
+        # Agar passed file path .mp3 hai lekin file disk par .wav format me exist karti hai
+        if not os.path.exists(audio_path) and audio_path.endswith(".mp3"):
+            wav_path = audio_path[:-4] + ".wav"
+            if os.path.exists(wav_path):
+                audio_path = wav_path
+
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"Audio file not found at: {audio_path}")
+
         try:
             logger.info(f"Starting transcription for: {audio_path}")
             result = self.model.transcribe(audio_path)
