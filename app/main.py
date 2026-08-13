@@ -1,213 +1,118 @@
-import logging
 import os
-import threading
 import asyncio
-import torch
-from flask import Flask
-import yt_dlp
+import logging
+from pathlib import Path
+
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Render Free Tier (512MB RAM) optimization
-torch.set_num_threads(1)
-
-# Application Package Imports
-from app.config import TELEGRAM_BOT_TOKEN, TEMP_DIR
-from app.ai.gemini_engine import GeminiEngine
-from app.ai.whisper_engine import SpeechToText
+# Media engine imports
 from app.media.ffmpeg_core import FFmpegCore
-from app.utils.file_manager import cleanup_files
+from app.media.models import RenderConfig, CropMode, QualityPreset
 
-# Logging Setup
+# Setup Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Fake HTTP Server for Render Port Binding
-web_app = Flask(__name__)
-
-@web_app.route('/')
-def health_check():
-    return "ClipCraft AI Bot is Running Alive!", 200
-
-def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    web_app.run(host="0.0.0.0", port=port)
-
-# Initialize AI Engines
-logger.info("Initializing AI Engines...")
-gemini = GeminiEngine()
-whisper_stt = SpeechToText("tiny")
+# FFmpeg Core Engine Instance
+ffmpeg_engine = FFmpegCore()
 
 
-# Optimized Link Downloader with YouTube Bot Bypass
-def _download_yt_video(url: str, output_path: str):
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best',
-        'outtmpl': output_path,
-        'quiet': True,
-        'no_warnings': True,
-        'overwrites': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['mweb', 'android', 'ios']
-            }
-        }
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-
-async def download_video_from_url(url: str, output_path: str):
-    await asyncio.to_thread(_download_yt_video, url, output_path)
-
-
-# Core Video Processing Pipeline
-async def process_video_pipeline(msg, input_video_path: str, message_id: int, update: Update):
-    audio_path = os.path.join(TEMP_DIR, f"audio_{message_id}.wav")
-    output_short_path = os.path.join(TEMP_DIR, f"short_{message_id}.mp4")
-
-    try:
-        # Step 1: Audio Extraction via FFmpeg
-        await msg.edit_text("🎧 **Step 1/5:** Video se Audio extract ho raha hai...", parse_mode="Markdown")
-        try:
-            await asyncio.to_thread(FFmpegCore.extract_audio, input_video_path, audio_path)
-        except Exception as e:
-            raise Exception(f"Audio Extraction Failed: {str(e)}")
-
-        # Step 2: Speech-to-Text via Whisper
-        await msg.edit_text("🗣️ **Step 2/5:** Whisper AI Transcribe kar raha hai...", parse_mode="Markdown")
-        try:
-            transcript_data = await asyncio.to_thread(whisper_stt.transcribe, audio_path)
-            if not transcript_data or not transcript_data.get("text"):
-                raise Exception("Transcript text empty mila (Video me clear voice nahi mili).")
-        except Exception as e:
-            raise Exception(f"Speech-to-Text Error: {str(e)}")
-
-        # Step 3: Gemini Analysis
-        await msg.edit_text("🧠 **Step 3/5:** Gemini AI viral segment find kar raha hai...", parse_mode="Markdown")
-        try:
-            ai_result = await asyncio.to_thread(gemini.analyze_viral_moments, transcript_data["text"])
-        except Exception as e:
-            raise Exception(f"Gemini AI Analysis Error: {str(e)}")
-
-        # Step 4: Render Short Clip
-        start_t = ai_result.get('start_time', '00:00:00')
-        end_t = ai_result.get('end_time', '00:00:30')
-        
-        await msg.edit_text(
-            f"✂️ **Step 4/5:** Short render ho raha hai...\n⏱️ Timing: `{start_t}` -> `{end_t}`",
-            parse_mode="Markdown"
-        )
-        try:
-            await asyncio.to_thread(FFmpegCore.trim_and_render_short, input_video_path, start_t, end_t, output_short_path)
-        except Exception as e:
-            raise Exception(f"FFmpeg Clip Render Error: {str(e)}")
-
-        # Step 5: Send Back to Telegram
-        await msg.edit_text("🚀 **Step 5/5:** Final Short upload ho raha hai...", parse_mode="Markdown")
-        caption_text = (
-            f"✨ **{ai_result.get('title', 'Generated Short')}**\n\n"
-            f"{ai_result.get('caption', '')}\n\n"
-            f"📊 *Viral Score:* {ai_result.get('viral_score', 'N/A')}/100"
-        )
-        
-        with open(output_short_path, "rb") as video_file:
-            await update.message.reply_video(
-                video=video_file,
-                caption=caption_text,
-                parse_mode="Markdown"
-            )
-            
-        await msg.delete()
-
-    except Exception as e:
-        logger.error(f"Pipeline processing error: {e}", exc_info=True)
-        await msg.edit_text(
-            f"❌ **Processing Error:**\n\n`{str(e)}`", 
-            parse_mode="Markdown"
-        )
-
-    finally:
-        cleanup_files(input_video_path, audio_path, output_short_path)
-
-
-# Telegram Handlers
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start command handler."""
     await update.message.reply_text(
-        "👋 **Welcome to AI Shorts Generator Bot!**\n\n"
-        "📹 Mujhe koi bhi long video (MP4/file) ya **YouTube/Reels Link** bhejo, main Gemini + FFmpeg use karke auto viral Shorts render kar doonga.",
-        parse_mode="Markdown"
+        "👋 Hi! Main aapka AI Video Editor Bot hoon.\n"
+        "Mujhe koi video bhejo, main use Shorts/Reels (9:16 format) me convert kar dunga!"
     )
 
-async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("📥 **Video file download ho rahi hai...**", parse_mode="Markdown")
-    message_id = update.message.message_id
-    input_video_path = os.path.join(TEMP_DIR, f"input_{message_id}.mp4")
 
-    async def run_task():
-        try:
-            file_obj = await update.message.video.get_file()
-            await file_obj.download_to_drive(input_video_path)
-            await process_video_pipeline(msg, input_video_path, message_id, update)
-        except Exception as e:
-            logger.error(f"File Download Error: {e}")
-            if "File is too big" in str(e):
-                await msg.edit_text(
-                    "❌ **Telegram 20MB File Limit:**\n"
-                    "Telegram Bot API 20MB se badi file direct download karne nahi deta.\n"
-                    "💡 Is video ka **YouTube/Reels Link** paste karein!"
-                )
-            else:
-                await msg.edit_text(f"❌ Video file download nahi ho paayi: `{str(e)}`", parse_mode="Markdown")
+async def process_video_pipeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Video download, processing, and output pipeline."""
+    message = update.message
+    video = message.video or message.document
 
-    asyncio.create_task(run_task())
+    if not video:
+        await message.reply_text("Kripya ek valid video file bhejein.")
+        return
 
-async def handle_text_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+    status_msg = await message.reply_text("📥 Video download ho rahi hai...")
     
-    if "http://" in text or "https://" in text:
-        msg = await update.message.reply_text("🔗 **Link receive hua! Video download ho rahi hai...**", parse_mode="Markdown")
-        message_id = update.message.message_id
-        input_video_path = os.path.join(TEMP_DIR, f"input_{message_id}.mp4")
+    # Unique Job ID setup
+    job_id = f"job_{message.chat_id}_{message.message_id}"
+    job_dir = Path(f"temp/{job_id}")
+    job_dir.mkdir(parents=True, exist_ok=True)
 
-        async def run_task():
-            try:
-                await download_video_from_url(text, input_video_path)
-                if not os.path.exists(input_video_path):
-                    raise Exception("Video file disk par save nahi ho paayi.")
+    input_video_path = str(job_dir / "input_video.mp4")
+    audio_path = str(job_dir / "whisper_input.wav")
+    output_video_path = str(job_dir / "output_short.mp4")
 
-                await process_video_pipeline(msg, input_video_path, message_id, update)
+    try:
+        # 1. Download Video from Telegram
+        file = await context.bot.get_file(video.file_id)
+        await file.download_to_drive(input_video_path)
 
-            except Exception as e:
-                logger.error(f"URL Download Error: {e}", exc_info=True)
-                await msg.edit_text(f"❌ **Link download fail hua:**\n`{str(e)}`", parse_mode="Markdown")
+        # 2. Extract Audio for AI / Whisper
+        await status_msg.edit_text("🎵 Audio extract ki ja rahi hai...")
+        await ffmpeg_engine.extract_whisper_audio(
+            input_path=input_video_path,
+            output_wav_path=audio_path
+        )
 
-        asyncio.create_task(run_task())
-    else:
-        await update.message.reply_text("❓ Please valid Video File ya YouTube/Reels link bhejein.")
+        # 3. Render 9:16 Vertical Video (FFmpeg Processing)
+        await status_msg.edit_text("🎬 Video process & render ho rahi hai (9:16)...")
+        render_config = RenderConfig(
+            target_width=1080,
+            target_height=1920,
+            quality=QualityPreset.HIGH,
+            crop_mode=CropMode.BLUR_BACKGROUND
+        )
+
+        await ffmpeg_engine.render_shorts_vertical(
+            input_path=input_video_path,
+            output_path=output_video_path,
+            config=render_config
+        )
+
+        # 4. Upload Final Processed Video back to User
+        await status_msg.edit_text("📤 Final video upload ho rahi hai...")
+        with open(output_video_path, "rb") as video_file:
+            await message.reply_video(
+                video=video_file,
+                caption="✅ Aapka Short/Reel ready hai!"
+            )
+        
+        await status_msg.delete()
+
+    except Exception as e:
+        logger.error(f"Pipeline processing error: {str(e)}", exc_info=True)
+        await status_msg.edit_text(f"❌ Video process karne me error aaya: {str(e)}")
+
+    finally:
+        # Cleanup temporary files
+        if job_dir.exists():
+            import shutil
+            shutil.rmtree(job_dir, ignore_errors=True)
+
 
 def main():
-    server_thread = threading.Thread(target=run_web_server)
-    server_thread.daemon = True
-    server_thread.start()
+    """Bot initialization and startup."""
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN environment variable set nahi hai!")
 
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.VIDEO, handle_video))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_url))
-    
-    print("🤖 Bot with All Features & Async Queue is running...")
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    # Handlers
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, process_video_pipeline))
+
+    logger.info("Bot starting...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
-                                  
+        
