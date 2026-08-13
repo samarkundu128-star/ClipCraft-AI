@@ -1,21 +1,53 @@
 telegram_video_bot/
 │
-├── config.py             # Settings, Env variables, API keys
-├── main.py               # Telegram Bot entry point
-├── requirements.txt      # Dependency list
+├── app/
+│   ├── main.py                # Telegram bot entry point
+│   ├── config.py              # Env vars & settings
+│   │
+│   ├── handlers/              # Telegram commands & message handlers
+│   │   ├── start.py
+│   │   ├── upload.py
+│   │   ├── link_input.py
+│   │   ├── settings.py
+│   │   └── status.py
+│   │
+│   ├── ai/
+│   │   ├── gemini_engine.py
+│   │   ├── whisper_engine.py
+│   │   ├── vision_engine.py
+│   │   └── viral_scorer.py
+│   │
+│   ├── media/
+│   │   ├── ffmpeg_core.py
+│   │   ├── moviepy_editor.py
+│   │   ├── audio_engine.py
+│   │   ├── subtitle_engine.py
+│   │   └── thumbnail.py
+│   │
+│   ├── services/              # High-level business logic
+│   │   ├── video_pipeline.py
+│   │   ├── render_service.py
+│   │   ├── delivery_service.py
+│   │   └── analytics_service.py
+│   │
+│   ├── utils/
+│   │   ├── task_queue.py
+│   │   ├── file_manager.py
+│   │   ├── logger.py
+│   │   ├── validators.py
+│   │   └── retry.py
+│   │
+│   └── templates/
+│       ├── hooks/
+│       ├── captions/
+│       └── subtitle_styles/
 │
-├── ai/                   # AI Brain Modules
-│   ├── gemini_engine.py  # Gemini API logic (Highlights, Hooks, Captions)
-│   ├── whisper_engine.py # Speech-to-Text Transcription
-│   └── vision_engine.py  # OpenCV Face Tracking & Scene Detection
-│
-├── media/                # Video Processing Engine
-│   ├── ffmpeg_core.py    # Fast FFmpeg slicing, joining, rendering
-│   ├── moviepy_editor.py # Complex overlays, beat sync & transitions
-│   └── thumbnail.py      # Pillow/ImageMagick thumbnail generator
-│
-├── utils/                # Queue, Cleanup, Error Handlers
-│   ├── task_queue.py     # Background worker queue (Celery/Asyncio)
-│   └── file_manager.py   # Auto temp-file cleanup & disk management
-│
-└── downloads/            # Temporary storage (Auto-cleaned)
+├── downloads/                 # Temporary input files
+├── outputs/                   # Final rendered videos
+├── logs/                      # Application logs
+├── tests/                     # Unit/integration tests
+├── .env
+├── .env.example
+├── requirements.txt
+├── README.md
+└── run.py                     # Production launcher
