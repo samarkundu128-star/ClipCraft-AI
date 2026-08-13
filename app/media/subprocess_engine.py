@@ -1,5 +1,6 @@
 """Async subprocess execution layer handling execution, timeouts, and cancellation."""
 
+import subprocess
 import asyncio
 import os
 import signal
