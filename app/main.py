@@ -7,7 +7,7 @@ from config import TELEGRAM_BOT_TOKEN, TEMP_DIR
 from ai.gemini_engine import GeminiEngine
 from ai.whisper_engine import SpeechToText
 from media.ffmpeg_core import FFmpegCore
-from utils.file_manager import cleanup_files
+from app.utils.file_manager import cleanup_files
 
 logging.basicConfig(level=logging.INFO)
 
