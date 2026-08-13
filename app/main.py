@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 from flask import Flask
+import yt_dlp
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -38,8 +39,19 @@ def run_web_server():
 
 # --- 2. Initialize AI Engines ---
 gemini = GeminiEngine()
-# Render Free Tier ke 512MB RAM limit ke liye "tiny" model best hai
 whisper_stt = SpeechToText("tiny")
+
+# --- Helper Function: Link Se Video Download Karne Ke Liye ---
+def download_video_from_url(url: str, output_path: str):
+    """YouTube / Social Links se video download karta hai"""
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': output_path,
+        'quiet': True,
+        'no_warnings': True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
 
 # --- 3. Telegram Handlers ---
@@ -47,25 +59,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/start command handler"""
     await update.message.reply_text(
         "👋 **Welcome to AI Shorts Generator Bot!**\n\n"
-        "📹 Mujhe koi bhi long video (MP4/file) bhejo, main Gemini + FFmpeg use karke auto viral Shorts/Reels render kar doonga.",
+        "📹 Mujhe koi bhi long video (MP4/file) ya **YouTube/Reels Link** bhejo, main Gemini + FFmpeg use karke auto viral Shorts render kar doonga.",
         parse_mode="Markdown"
     )
 
 
-async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Video handling and processing workflow"""
-    msg = await update.message.reply_text("📥 **Video download ho rahi hai...**", parse_mode="Markdown")
-    
-    message_id = update.message.message_id
-    input_video_path = os.path.join(TEMP_DIR, f"input_{message_id}.mp4")
+async def process_video_pipeline(msg, input_video_path: str, message_id: int, update: Update):
+    """Core Processing Logic (Shared for File & Link)"""
     audio_path = os.path.join(TEMP_DIR, f"audio_{message_id}.mp3")
     output_short_path = os.path.join(TEMP_DIR, f"short_{message_id}.mp4")
 
     try:
-        # Step 0: Download Video
-        file = await update.message.video.get_file()
-        await file.download_to_drive(input_video_path)
-
         # Step 1: Extract Audio
         await msg.edit_text("🎧 **Audio extract ho raha hai...**", parse_mode="Markdown")
         FFmpegCore.extract_audio(input_video_path, audio_path)
@@ -116,9 +120,45 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cleanup_files(input_video_path, audio_path, output_short_path)
 
 
+async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Direct Uploaded Video Handler"""
+    msg = await update.message.reply_text("📥 **Video download ho rahi hai...**", parse_mode="Markdown")
+    message_id = update.message.message_id
+    input_video_path = os.path.join(TEMP_DIR, f"input_{message_id}.mp4")
+
+    try:
+        file = await update.message.video.get_file()
+        await file.download_to_drive(input_video_path)
+        await process_video_pipeline(msg, input_video_path, message_id, update)
+    except Exception as e:
+        logger.error(f"File Download Error: {e}")
+        await msg.edit_text(f"❌ Video file download nahi ho paayi: {str(e)}")
+
+
+async def handle_text_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """YouTube / Social Links Handler"""
+    text = update.message.text.strip()
+    
+    # URL check karein
+    if text.startswith("http://") or text.startswith("https://"):
+        msg = await update.message.reply_text("🔗 **Link detect hua! Video fetch ho rahi hai...**", parse_mode="Markdown")
+        message_id = update.message.message_id
+        input_video_path = os.path.join(TEMP_DIR, f"input_{message_id}.mp4")
+
+        try:
+            # yt-dlp se video download karein
+            download_video_from_url(text, input_video_path)
+            await process_video_pipeline(msg, input_video_path, message_id, update)
+        except Exception as e:
+            logger.error(f"URL Download Error: {e}")
+            await msg.edit_text(f"❌ Link se video download nahi ho paayi: {str(e)}")
+    else:
+        await update.message.reply_text(" Please valid MP4 Video File ya YouTube/Reels ka URL link bhejein.")
+
+
 # --- 4. Main Function ---
 def main():
-    # Background thread me Flask Web Server start karein (Render Port Scanner ke liye)
+    # Background thread me Flask Web Server start karein
     server_thread = threading.Thread(target=run_web_server)
     server_thread.daemon = True
     server_thread.start()
@@ -128,11 +168,12 @@ def main():
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.VIDEO, handle_video))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_url))
     
-    print("🤖 Bot and Web Server successfully started...")
+    print("🤖 Bot with Link Handler & Web Server successfully started...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-    
+                  
