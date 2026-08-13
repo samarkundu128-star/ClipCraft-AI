@@ -1,48 +1,46 @@
-import google.generativeai as genai
 import json
-from config import GEMINI_API_KEY
+import os
+from google import genai
 
-genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 class GeminiEngine:
     def __init__(self):
-        self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        self.client = genai.Client(api_key=GEMINI_API_KEY)
 
-    def analyze_content(self, transcript_text: str):
+    def analyze_viral_moments(self, transcript_text: str) -> dict:
         prompt = f"""
-        You are an expert short-form video editor for TikTok, Instagram Reels, and YouTube Shorts.
-        Analyze the following video transcript with timestamps and extract the single most engaging/viral 30 to 60-second clip.
+        Analyze this transcript and find the single most viral 30-60 sec moment.
+        
+        Transcript: {transcript_text}
 
-        Transcript:
-        {transcript_text}
-
-        Return strictly JSON output in this format:
+        Return strictly valid JSON:
         {{
-            "start_time": "00:01:15",
-            "end_time": "00:01:45",
-            "viral_score": 92,
-            "hook_text": "Stop doing this mistake!",
-            "title": "The Ultimate Productivity Hack",
-            "caption": "You won't believe how much time this saves 🚀 #productivity #lifehacks",
-            "editing_style": "fast_paced_zoom"
+            "start_time": "00:01:10",
+            "end_time": "00:01:40",
+            "viral_score": 90,
+            "title": "Viral Moment Title",
+            "caption": "Check this out! #shorts #viral",
+            "hook_text": "Watch until the end!"
         }}
         """
         try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config={"response_mime_type": "application/json"}
+            response = self.client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config={
+                    'response_mime_type': 'application/json',
+                }
             )
             return json.loads(response.text)
         except Exception as e:
-            # Graceful Fallback if API fails
-            print(f"[Gemini Error]: {e}. Triggering fallback local engine.")
+            print(f"[Gemini Error]: {e}")
             return {
                 "start_time": "00:00:00",
                 "end_time": "00:00:30",
                 "viral_score": 50,
-                "hook_text": "Watch This!",
-                "title": "Processed Video",
-                "caption": "#shorts #viral",
-                "editing_style": "default"
+                "title": "Processed Clip",
+                "caption": "#shorts",
+                "hook_text": "Watch this"
             }
-          
+            
