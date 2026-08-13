@@ -1,49 +1,88 @@
 import logging
 import os
+import threading
+from flask import Flask
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
 
-from config import TELEGRAM_BOT_TOKEN, TEMP_DIR
-from ai.gemini_engine import GeminiEngine
-from ai.whisper_engine import SpeechToText
-from media.ffmpeg_core import FFmpegCore
+# Application Package Imports
+from app.config import TELEGRAM_BOT_TOKEN, TEMP_DIR
+from app.ai.gemini_engine import GeminiEngine
+from app.ai.whisper_engine import SpeechToText
+from app.media.ffmpeg_core import FFmpegCore
 from app.utils.file_manager import cleanup_files
 
-logging.basicConfig(level=logging.INFO)
+# Logging Setup
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
+# --- 1. Fake HTTP Server for Render Free Tier Port Binding ---
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def health_check():
+    return "ClipCraft AI Bot is Running Alive!", 200
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host="0.0.0.0", port=port)
+
+# --- 2. Initialize AI Engines ---
 gemini = GeminiEngine()
-whisper_stt = SpeechToText("base")
+# Render Free Tier ke 512MB RAM limit ke liye "tiny" model best hai
+whisper_stt = SpeechToText("tiny")
 
+
+# --- 3. Telegram Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/start command handler"""
     await update.message.reply_text(
         "👋 **Welcome to AI Shorts Generator Bot!**\n\n"
-        "📹 Mughe koi bhi long video (MP4/file) bhejo, main Gemini + FFmpeg use karke auto viral Shorts/Reels render kar doonga."
+        "📹 Mujhe koi bhi long video (MP4/file) bhejo, main Gemini + FFmpeg use karke auto viral Shorts/Reels render kar doonga.",
+        parse_mode="Markdown"
     )
 
-async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("📥 **Video download ho rahi hai...**")
-    
-    file = await update.message.video.get_file()
-    input_video_path = os.path.join(TEMP_DIR, f"input_{update.message.message_id}.mp4")
-    audio_path = os.path.join(TEMP_DIR, f"audio_{update.message.message_id}.mp3")
-    output_short_path = os.path.join(TEMP_DIR, f"short_{update.message.message_id}.mp4")
 
-    await file.download_to_drive(input_video_path)
+async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Video handling and processing workflow"""
+    msg = await update.message.reply_text("📥 **Video download ho rahi hai...**", parse_mode="Markdown")
+    
+    message_id = update.message.message_id
+    input_video_path = os.path.join(TEMP_DIR, f"input_{message_id}.mp4")
+    audio_path = os.path.join(TEMP_DIR, f"audio_{message_id}.mp3")
+    output_short_path = os.path.join(TEMP_DIR, f"short_{message_id}.mp4")
 
     try:
+        # Step 0: Download Video
+        file = await update.message.video.get_file()
+        await file.download_to_drive(input_video_path)
+
         # Step 1: Extract Audio
-        await msg.edit_text("🎧 **Audio extract and Speech-to-Text transcribe ho raha hai...**")
+        await msg.edit_text("🎧 **Audio extract ho raha hai...**", parse_mode="Markdown")
         FFmpegCore.extract_audio(input_video_path, audio_path)
 
-        # Step 2: Whisper Transcription
+        # Step 2: Whisper Speech-to-Text
+        await msg.edit_text("🗣️ **Transcribe ho raha hai (Speech-to-Text)...**", parse_mode="Markdown")
         transcript_data = whisper_stt.transcribe(audio_path)
 
         # Step 3: Gemini Analysis
-        await msg.edit_text("🧠 **Gemini AI best viral segment find kar raha hai...**")
-        ai_result = gemini.analyze_content(transcript_data["text"])
+        await msg.edit_text("🧠 **Gemini AI best viral segment find kar raha hai...**", parse_mode="Markdown")
+        ai_result = gemini.analyze_viral_moments(transcript_data["text"])
 
         # Step 4: Render Clip via FFmpeg
-        await msg.edit_text(f"✂️ **Rendering Shorts segment ({ai_result['start_time']} - {ai_result['end_time']})...**")
+        await msg.edit_text(
+            f"✂️ **Rendering Short segment ({ai_result['start_time']} - {ai_result['end_time']})...**",
+            parse_mode="Markdown"
+        )
         FFmpegCore.trim_and_render_short(
             input_video_path,
             ai_result["start_time"],
@@ -52,27 +91,48 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # Step 5: Send Back to Telegram
-        await msg.edit_text("🚀 **Uploading final Short...**")
-        caption_text = f"✨ **{ai_result['title']}**\n\n{ai_result['caption']}\n\n📊 *Viral Score:* {ai_result['viral_score']}/100"
+        await msg.edit_text("🚀 **Uploading final Short...**", parse_mode="Markdown")
+        caption_text = (
+            f"✨ **{ai_result.get('title', 'Generated Short')}**\n\n"
+            f"{ai_result.get('caption', '')}\n\n"
+            f"📊 *Viral Score:* {ai_result.get('viral_score', 'N/A')}/100"
+        )
         
-        with open(output_short_path, 'rb') as video_file:
-            await update.message.reply_video(video=video_file, caption=caption_text)
+        with open(output_short_path, "rb") as video_file:
+            await update.message.reply_video(
+                video=video_file,
+                caption=caption_text,
+                parse_mode="Markdown"
+            )
+            
+        await msg.delete()
 
     except Exception as e:
-        await update.message.reply_text(f"❌ Error aaya: {str(e)}")
+        logger.error(f"Processing error: {e}", exc_info=True)
+        await msg.edit_text(f"❌ **Error aaya:** {str(e)}", parse_mode="Markdown")
 
     finally:
         # Step 6: Cleanup Temp files
-        cleanup_files(input_video_path, audio_path, output_output_short_path if 'output_short_path' in locals() else None)
+        cleanup_files(input_video_path, audio_path, output_short_path)
 
+
+# --- 4. Main Function ---
 def main():
+    # Background thread me Flask Web Server start karein (Render Port Scanner ke liye)
+    server_thread = threading.Thread(target=run_web_server)
+    server_thread.daemon = True
+    server_thread.start()
+
+    # Telegram Bot Start
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.VIDEO, handle_video))
     
-    print("Bot is running...")
+    print("🤖 Bot and Web Server successfully started...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
-  
+    
