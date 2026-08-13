@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Project Storage
+downloads/
+outputs/
+logs/
+*.mp4
+*.mp3
+*.wav
+*.srt
+
+# OS & IDE
+.DS_Store
+.vscode/
+.idea/
