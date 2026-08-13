@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import asyncio
+import torch
 from flask import Flask
 import yt_dlp
 from telegram import Update
@@ -12,6 +13,9 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+
+# PyTorch RAM and Thread Optimization for Render Free Tier (512MB Limit)
+torch.set_num_threads(1)
 
 # Application Package Imports
 from app.config import TELEGRAM_BOT_TOKEN, TEMP_DIR
@@ -68,7 +72,8 @@ async def download_video_from_url(url: str, output_path: str):
 # --- 3. Core Video Processing Pipeline ---
 async def process_video_pipeline(msg, input_video_path: str, message_id: int, update: Update):
     """Sare features (Extract, Transcribe, Gemini AI, Trim, Upload) ek sath"""
-    audio_path = os.path.join(TEMP_DIR, f"audio_{message_id}.mp3")
+    # FIX: Audio path ko directly .wav kar diya hai taaki FFmpeg aur Cleanup dono sahi file par kaam karein
+    audio_path = os.path.join(TEMP_DIR, f"audio_{message_id}.wav")
     output_short_path = os.path.join(TEMP_DIR, f"short_{message_id}.mp4")
 
     try:
@@ -164,7 +169,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.edit_text(
                     "❌ **Telegram 20MB File Limit:**\n"
                     "Telegram Bot API 20MB se badi file direct download karne nahi deta.\n"
-                    "💡 Is video ka **YouTube/Reels Link** paste karein, bot bina kisi file limit keShort generate kar dega!"
+                    "💡 Is video ka **YouTube/Reels Link** paste karein, bot bina kisi file limit ke Short generate kar dega!"
                 )
             else:
                 await msg.edit_text(f"❌ Video file download nahi ho paayi: `{str(e)}`", parse_mode="Markdown")
