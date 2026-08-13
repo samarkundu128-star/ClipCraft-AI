@@ -1,53 +1,42 @@
-telegram_video_bot/
+ClipCraft-AI/
+├── .env.example
+├── .gitignore
+├── Dockerfile
+├── README.md
+├── requirements.txt
+├── run.py                       # Production Entry Point
 │
 ├── app/
-│   ├── main.py                # Telegram bot entry point
-│   ├── config.py              # Env vars & settings
-│   │
-│   ├── handlers/              # Telegram commands & message handlers
-│   │   ├── start.py
-│   │   ├── upload.py
-│   │   ├── link_input.py
-│   │   ├── settings.py
-│   │   └── status.py
+│   ├── __init__.py
+│   ├── config.py                # Environment & Path configurations
+│   ├── main.py                  # Bot Application Initializer
 │   │
 │   ├── ai/
-│   │   ├── gemini_engine.py
-│   │   ├── whisper_engine.py
-│   │   ├── vision_engine.py
-│   │   └── viral_scorer.py
+│   │   ├── __init__.py
+│   │   ├── gemini_engine.py     # Content Analysis & Viral Selection
+│   │   ├── whisper_engine.py    # Speech-to-Text Transcription
+│   │   └── vision_engine.py     # OpenCV Face Tracking / Crop logic
+│   │
+│   ├── handlers/
+│   │   ├── __init__.py
+│   │   ├── start.py             # Basic Commands (/start, /help)
+│   │   └── upload.py            # Video Upload & Processing Trigger
 │   │
 │   ├── media/
-│   │   ├── ffmpeg_core.py
-│   │   ├── moviepy_editor.py
-│   │   ├── audio_engine.py
-│   │   ├── subtitle_engine.py
-│   │   └── thumbnail.py
+│   │   ├── __init__.py
+│   │   ├── ffmpeg_core.py       # Raw Subprocess Execution (Fast)
+│   │   ├── moviepy_editor.py   # Overlay Effects & Text Generation
+│   │   └── subtitle_engine.py  # SRT/ASS Subtitle Burner
 │   │
-│   ├── services/              # High-level business logic
-│   │   ├── video_pipeline.py
-│   │   ├── render_service.py
-│   │   ├── delivery_service.py
-│   │   └── analytics_service.py
+│   ├── services/
+│   │   ├── __init__.py
+│   │   └── video_pipeline.py    # Orchestrator connecting AI + Media + Telegram
 │   │
-│   ├── utils/
-│   │   ├── task_queue.py
-│   │   ├── file_manager.py
-│   │   ├── logger.py
-│   │   ├── validators.py
-│   │   └── retry.py
-│   │
-│   └── templates/
-│       ├── hooks/
-│       ├── captions/
-│       └── subtitle_styles/
+│   └── utils/
+│       ├── __init__.py
+│       ├── file_manager.py     # Disk Cleanup & Storage Guards
+│       ├── logger.py           # Structured Logging Setup
+│       └── task_queue.py       # Async Processing Queue
 │
-├── downloads/                 # Temporary input files
-├── outputs/                   # Final rendered videos
-├── logs/                      # Application logs
-├── tests/                     # Unit/integration tests
-├── .env
-├── .env.example
-├── requirements.txt
-├── README.md
-└── run.py                     # Production launcher
+├── downloads/                   # Ignored by Git
+└── outputs/                     # Ignored by Git
